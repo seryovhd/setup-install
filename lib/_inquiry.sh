@@ -2,7 +2,7 @@
 
 get_mysql_root_password() {
   print_banner
-  printf "${WHITE} 💻 Ingresa la ${YELLOW}CONTRASEÑA${WHITE} para el usuario Deploy y la base de datos (No utilizar caracteres especiales):${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Ingresa la ${YELLOW}CONTRASEÑA${WHITE} para el usuario Deploy y la base de datos PostgreSQL (No utilizar caracteres especiales):${GRAY_LIGHT}"
   printf "\n\n"
   
   while true; do
@@ -11,6 +11,9 @@ get_mysql_root_password() {
 
     # Validar que no tenga caracteres especiales (solo letras y números)
     if [[ "$mysql_root_password" =~ ^[a-zA-Z0-9]+$ ]]; then
+      if [ -f "${PROJECT_ROOT}/config" ]; then
+        sed -i -E "s|^mysql_root_password=.*|mysql_root_password=${mysql_root_password}|" "${PROJECT_ROOT}/config" 2>/dev/null || true
+      fi
       break
     else
       echo -e "${RED}❌ La contraseña no debe contener caracteres especiales. Intenta nuevamente.${GRAY_LIGHT}"
@@ -21,17 +24,17 @@ get_mysql_root_password() {
 get_link_git() {
   print_banner
   
-  default_link="https://github.com/MinoruMX/Chasap.git"
-  printf "${WHITE} 💻 Ingresa el enlace de ${YELLOW}GITHUB${WHITE} de Chasap que deseas instalar:${GRAY_LIGHT}\n"
+  default_link="https://github.com/seryovhd/clezapp.git"
+  printf "${WHITE} 💻 Ingresa el enlace de ${YELLOW}GITHUB${WHITE} de Clezapp Pro que deseas instalar:${GRAY_LIGHT}\n"
   printf "  Presiona Enter para usar el valor por defecto:\n\n"
   printf "  ${default_link}\n\n"
   read -p "> " link_git
   link_git="${link_git:-$default_link}"
 
-  # Si el enlace contiene ':' y '@', pedir el chasap_id
+  # Si el enlace contiene ':' y '@', pedir el token/ID
   if [[ "$link_git" == *":"* && "$link_git" == *"@"* ]]; then
     printf "\n${WHITE} 🔐 El enlace requiere autenticación.${GRAY_LIGHT}\n"
-    read -p "Ingresa el chasap_id: " CHASAP_ID
+    read -p "Ingresa el token/ID de acceso: " CHASAP_ID
   fi
 }
 
@@ -110,6 +113,15 @@ get_redis_port() {
   printf "${WHITE} 💻 Ingresa el ${YELLOW}${WHITE}puerto de REDIS/AGENDAMIENTO MSG para ${instancia_add}; Ej: 5000 A 5999 ${GRAY_LIGHT}"
   printf "\n\n"
   read -p "> " redis_port
+}
+
+get_evolution_port() {
+  
+  print_banner
+  printf "${WHITE} 💻 Ingresa el puerto de ${YELLOW}EVOLUTION API (Motor WhatsApp)${WHITE} para ${instancia_add}; (Presiona ENTER para usar 8080):${GRAY_LIGHT}"
+  printf "\n\n"
+  read -p "> " evolution_port
+  evolution_port="${evolution_port:-8080}"
 }
 
 get_empresa_delete() {
@@ -197,6 +209,7 @@ get_urls() {
   get_frontend_port
   get_backend_port
   get_redis_port
+  get_evolution_port
 }
 
 software_update() {
@@ -204,7 +217,17 @@ software_update() {
   frontend_update
   backend_update
   fix_502
-  reboot
+  printf "\n${GREEN}✅ ¡Actualización de Clezapp Pro completada con éxito!${GRAY_LIGHT}\n\n"
+  read -p "> ¿Deseas reiniciar el servidor VPS ahora? (s/N) " resp_reboot
+  resp_reboot=${resp_reboot:-N}
+  if [[ "$resp_reboot" =~ ^[sS]$ ]]; then
+    echo "🔄 Reiniciando el servidor..."
+    reboot
+  else
+    echo "▶️ Recargando Nginx y servicios..."
+    systemctl reload nginx 2>/dev/null || true
+    echo "✅ Sistema actualizado y en ejecución sin reiniciar el VPS."
+  fi
 }
 
 software_delete() {
@@ -291,18 +314,25 @@ software_update_baileys(){
   backend_update_baileys
 }
 
+software_logs_evolution(){
+  get_instancia_add
+  print_banner
+  printf "${WHITE} 💻 Logs de Evolution API para ${instancia_add}...${GRAY_LIGHT}\n\n"
+  docker logs -f --tail 100 evolution-${instancia_add}
+}
+
 inquiry_options() {
   
   print_banner
-  printf "${WHITE} 💻 Bienvenido(a) al Administrador de Chasap, ¡Selecciona la siguiente acción!${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Bienvenido(a) al Administrador de Clezapp Pro, ¡Selecciona la siguiente acción!${GRAY_LIGHT}"
   printf "\n\n"
-  printf "   [1] Instalar Chasap\n"
-  printf "   [2] Actualizar Chasap\n"
-  printf "   [3] Cambiar Versión Chasap\n"
-  printf "   [4] Eliminar Chasap\n"
-  printf "   [5] Bloquear Chasap\n"
-  printf "   [6] Desbloquear Chasap\n"
-  printf "   [7] Cambiar dominio Chasap\n"
+  printf "   [1] Instalar Clezapp Pro\n"
+  printf "   [2] Actualizar Clezapp Pro\n"
+  printf "   [3] Cambiar Versión Clezapp Pro\n"
+  printf "   [4] Eliminar Clezapp Pro\n"
+  printf "   [5] Bloquear Clezapp Pro\n"
+  printf "   [6] Desbloquear Clezapp Pro\n"
+  printf "   [7] Cambiar dominio Clezapp Pro\n"
   printf "   [8] Revisar Logs Backend\n"
   printf "   [9] Revisar Logs Frontend\n"
   printf "   [10] Fix - Rebuilder Front y Back\n"
@@ -311,6 +341,7 @@ inquiry_options() {
   printf "   [13] Fix - 502 Bad Gateway\n"
   printf "   [14] Fix - Reinstalar Certificado Certbot\n"
   printf "   [15] Actualizar paquete Baileys Backend\n"
+  printf "   [16] Revisar Logs Evolution API (Motor WhatsApp)\n"
   printf "   [20] Actualizar Backend\n"
   printf "   [21] Actualizar Frontend\n"  
   printf "\n"
@@ -373,6 +404,10 @@ inquiry_options() {
       ;;   
     15)
       software_update_baileys
+      exit
+      ;;
+    16)
+      software_logs_evolution
       exit
       ;;
     20) 

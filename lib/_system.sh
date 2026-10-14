@@ -9,15 +9,18 @@
 #######################################
 system_create_user() {
   print_banner
-  printf "${WHITE} 💻 Ahora vamos a crear el usuario para la instancia...${GRAY_LIGHT}\n\n"
+  printf "${WHITE} 💻 Verificando/Creando usuario deploy para la instancia...${GRAY_LIGHT}\n\n"
 
   sleep 2
 
-   sudo adduser --disabled-password --gecos "" deploy && echo "deploy:${mysql_root_password}" | sudo chpasswd
-  sudo su - root <<EOF
-  useradd -m -p $(openssl passwd -crypt ${mysql_root_password}) -s /bin/bash -G sudo deploy
-  usermod -aG sudo deploy
-EOF
+  if ! id -u deploy &>/dev/null; then
+    sudo adduser --disabled-password --gecos "" deploy
+    echo "deploy:${mysql_root_password}" | sudo chpasswd
+    sudo usermod -aG sudo deploy
+  else
+    echo "deploy:${mysql_root_password}" | sudo chpasswd
+  fi
+  sudo usermod -aG docker deploy 2>/dev/null || true
 
   sleep 2
 }
@@ -30,13 +33,20 @@ EOF
 #######################################
 system_git_clone() {
   print_banner
-  printf "${WHITE} 💻 Descargando el código de Whaticket...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Descargando el código de Clezapp Pro...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
 
   sudo su - deploy <<EOF
-  git clone ${link_git} /home/deploy/${instancia_add}/
+  if [ ! -d "/home/deploy/${instancia_add}" ]; then
+    git clone ${link_git} /home/deploy/${instancia_add}/
+  else
+    cd /home/deploy/${instancia_add}
+    git config --global --add safe.directory /home/deploy/${instancia_add}
+    git fetch origin
+    git reset --hard origin/main 2>/dev/null || git pull
+  fi
 EOF
 
   sleep 2
@@ -49,14 +59,27 @@ EOF
 #######################################
 system_update() {
   print_banner
-  printf "${WHITE} 💻 Vamos a actualizar el sistema de Chasap...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Vamos a actualizar el sistema de Clezapp Pro...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
 
   sudo su - root <<EOF
-  apt -y update
-  sudo apt-get install -y libxshmfence-dev libgbm-dev wget unzip fontconfig locales gconf-service libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 ca-certificates fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils
+  apt-get update -y
+  apt-get install -y ffmpeg curl git wget unzip fontconfig locales ca-certificates
+
+  # Configurar SWAP si hay menos de 1GB disponible para evitar falta de memoria en la compilación
+  current_swap=\$(free -m | awk '/^Swap:/ {print \$2}')
+  if [ "\${current_swap:-0}" -lt 1024 ]; then
+    echo "💾 Configurando memoria SWAP de 4GB para compilación de frontend..."
+    fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    if ! grep -q "/swapfile" /etc/fstab; then
+      echo "/swapfile none swap sw 0 0" >> /etc/fstab
+    fi
+  fi
 EOF
 
   sleep 2
@@ -69,13 +92,14 @@ EOF
 #######################################
 deletar_tudo() {
   print_banner
-  printf "${WHITE} 💻 Vamos a eliminar Whaticket...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Vamos a eliminar Clezapp Pro...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
 
   sudo su - root <<EOF
-  docker container rm redis-${empresa_delete} --force
+  docker container rm redis-${empresa_delete} --force 2>/dev/null || true
+  docker container rm evolution-${empresa_delete} --force 2>/dev/null || true
   cd && rm -rf /etc/nginx/sites-enabled/${empresa_delete}-frontend
   cd && rm -rf /etc/nginx/sites-enabled/${empresa_delete}-backend  
   cd && rm -rf /etc/nginx/sites-available/${empresa_delete}-frontend
@@ -83,17 +107,17 @@ deletar_tudo() {
   
   sleep 2
 
-  sudo su - postgres
-  dropuser ${empresa_delete}
-  dropdb ${empresa_delete}
-  exit
+  sudo su - postgres <<EOSQL
+  dropuser ${empresa_delete} 2>/dev/null || true
+  dropdb ${empresa_delete} 2>/dev/null || true
+EOSQL
 EOF
 
   sleep 2
 
   sudo su - deploy <<EOF
   rm -rf /home/deploy/${empresa_delete}
-  pm2 delete ${empresa_delete}-frontend ${empresa_delete}-backend
+  pm2 delete ${empresa_delete}-frontend ${empresa_delete}-backend 2>/dev/null || true
   pm2 save
 EOF
 
@@ -113,7 +137,7 @@ EOF
 #######################################
 configurar_bloqueio() {
   print_banner
-  printf "${WHITE} 💻 Vamos a bloquear Whaticket...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Vamos a bloquear Clezapp Pro...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
@@ -139,7 +163,7 @@ EOF
 #######################################
 configurar_desbloqueio() {
   print_banner
-  printf "${WHITE} 💻 Vamos a desbloquear Whaticket...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Vamos a desbloquear Clezapp Pro...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
@@ -165,7 +189,7 @@ EOF
 #######################################
 configurar_dominio() {
   print_banner
-  printf "${WHITE} 💻 Vamos a cambiar los dominios de Whaticket...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Vamos a cambiar los dominios de Clezapp Pro...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
@@ -266,13 +290,14 @@ EOF
 }
 
 #######################################
+#######################################
 # Instala node
 # Argumentos:
 #   Ninguno
 #######################################
 system_node_install() {
   print_banner
-  printf "${WHITE} 💻 Instalando nodejs...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando nodejs y postgresql...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
@@ -283,9 +308,9 @@ system_node_install() {
   sleep 2
   npm install -g npm@latest --loglevel=error
   sleep 2
-  sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-  wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-  sudo apt-get update -y && sudo apt-get -y install postgresql
+  apt-get update -y && apt-get install -y postgresql postgresql-contrib
+  systemctl enable postgresql
+  systemctl start postgresql
   sleep 2
   sudo timedatectl set-timezone America/Mexico_City
 EOF
@@ -306,15 +331,13 @@ system_docker_install() {
   sleep 2
 
   sudo su - root <<EOF
-  apt install -y apt-transport-https \
-                 ca-certificates curl \
-                 software-properties-common
-
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-  
-  add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
-
-  apt install -y docker-ce
+  if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+    sh /tmp/get-docker.sh
+    rm -f /tmp/get-docker.sh
+  fi
+  systemctl enable docker
+  systemctl start docker
 EOF
 
   sleep 2
@@ -333,55 +356,52 @@ EOF
 #######################################
 system_puppeteer_dependencies() {
   print_banner
-  printf "${WHITE} 💻 Instalando puppeteer dependencies...${GRAY_LIGHT}"
+  printf "${WHITE} 💻 Instalando dependencias multimedia y de sistema...${GRAY_LIGHT}"
   printf "\n\n"
 
   sleep 2
 
   sudo su - root <<EOF
-  apt-get install -y libxshmfence-dev \
-                      libgbm-dev \
-                      wget \
-                      unzip \
-                      fontconfig \
-                      locales \
-                      gconf-service \
-                      libasound2 \
-                      libatk1.0-0 \
-                      libc6 \
-                      libcairo2 \
-                      libcups2 \
-                      libdbus-1-3 \
-                      libexpat1 \
-                      libfontconfig1 \
-                      libgcc1 \
-                      libgconf-2-4 \
-                      libgdk-pixbuf2.0-0 \
-                      libglib2.0-0 \
-                      libgtk-3-0 \
-                      libnspr4 \
-                      libpango-1.0-0 \
-                      libpangocairo-1.0-0 \
-                      libstdc++6 \
-                      libx11-6 \
-                      libx11-xcb1 \
-                      libxcb1 \
-                      libxcomposite1 \
-                      libxcursor1 \
-                      libxdamage1 \
-                      libxext6 \
-                      libxfixes3 \
-                      libxi6 \
-                      libxrandr2 \
-                      libxrender1 \
-                      libxss1 \
-                      libxtst6 \
-                      ca-certificates \
-                      fonts-liberation \
-                      libappindicator1 \
-                      libnss3 \
-                      lsb-release \
-                      xdg-utils
+  apt-get install -y \
+    ca-certificates \
+    curl \
+    ffmpeg \
+    fontconfig \
+    fonts-liberation \
+    git \
+    libatk1.0-0 \
+    libc6 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libexpat1 \
+    libfontconfig1 \
+    libgbm-dev \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxshmfence-dev \
+    libxss1 \
+    libxtst6 \
+    locales \
+    lsb-release \
+    unzip \
+    wget \
+    xdg-utils 2>/dev/null || true
 EOF
 
   sleep 2
@@ -530,10 +550,10 @@ system_certbot_setup() {
   sudo ufw allow 443
 
   if certbot -m "$deploy_email" --nginx --agree-tos --non-interactive --domains "$backend_domain","$frontend_domain"; then
-    echo "✅ Certbot se ejecutó correctamente."
+    echo "✅ Certbot se ejecutó correctamente y los certificados SSL están activos."
   else
-    echo "❌ Ocurrió un error al ejecutar Certbot."
-    return 1
+    echo "⚠️ Certbot no pudo generar los certificados SSL automáticamente (comprueba que los registros DNS A de $frontend_domain y $backend_domain apunten a este VPS)."
+    echo "➡️ Una vez que el DNS propague, puedes instalar el SSL en cualquier momento con la Opción [14] del instalador."
   fi
 
   sleep 2
@@ -587,13 +607,16 @@ frontend_logs() {
 
 backend_migrate() {
   print_banner
-  printf "${WHITE} 💻 FIX MIGRACIONES...${GRAY_LIGHT}"
-  printf "\n\n"
+  printf "${WHITE} 💻 FIX MIGRACIONES - Sincronizando y ejecutando migraciones...${GRAY_LIGHT}\n\n"
 
   sleep 2
-  cd /home/deploy/$(echo "$instancia_add")/backend
+  cd /home/deploy/"${instancia_add}"/backend || return 1
+  echo "🏗️  Compilando backend..."
+  sudo -u deploy npm run build
+  echo "🛢️  Ejecutando migraciones de base de datos..."
   sudo -u deploy npx sequelize db:migrate
-  npx sequelize db:seed:all
+  echo "🌱 Verificando semillas..."
+  sudo -u deploy npx sequelize db:seed:all || true
   sleep 2
 }
 
@@ -620,7 +643,7 @@ pm2_reinstall(){
   ## -------- BACKEND -------- ##
   echo -e "\n🔧 Backend:"
   cd "$BACK_PATH" || { echo "❌ No se pudo acceder al backend en $BACK_PATH"; return 1; }
-  sudo -u deploy pm2 start dist/server.js --node-args="--experimental-global-webcrypto" --name "${instancia_add}-backend"
+  sudo -u deploy pm2 start dist/server.js --node-args="--max-old-space-size=4096 --experimental-global-webcrypto" --name "${instancia_add}-backend"
   sudo -u deploy pm2 save --force
 
   echo -e "\n✅ ${WHITE}PM2 COMPLETO COMO DEPLOY${GRAY_LIGHT}\n"
@@ -632,7 +655,7 @@ build_ambos() {
   printf "${WHITE} 💻 INICIANDO BUILD DE FRONTEND Y BACKEND...${GRAY_LIGHT}\n\n"
   sleep 1
 
-  printf "${WHITE} ⏳ ESTE PROCESO PUEDE TARDAR UN POCO, POR FAVOR ESPERA...\n\n"
+  printf "${WHITE} ⏳ ESTE PROCESO PUEDE TARDAR UNOS MINUTOS, POR FAVOR ESPERA...\n\n"
 
   FRONT_PATH="/home/deploy/${instancia_add}/frontend"
   BACK_PATH="/home/deploy/${instancia_add}/backend"
@@ -642,24 +665,26 @@ build_ambos() {
   cd "$FRONT_PATH" || { echo "❌ No se pudo acceder al frontend en $FRONT_PATH"; return 1; }
 
   echo "🧹 Limpiando build anterior..."
-  sudo -u deploy rm -rf build & 
-  show_spinner $!
+  sudo -u deploy rm -rf build
 
-  echo "🏗️  Construyendo nueva versión del frontend..."
-  sudo -u deploy npm run build & 
-  show_spinner $!
+  echo "🏗️  Construyendo versión de producción del frontend..."
+  sudo -u deploy bash -c "
+    cd $FRONT_PATH && \
+    export NODE_OPTIONS='--openssl-legacy-provider --max-old-space-size=4096' && \
+    export GENERATE_SOURCEMAP=false && \
+    export INLINE_RUNTIME_CHUNK=false && \
+    npm run build
+  "
   
   ## -------- BACKEND -------- ##
   echo -e "\n🔧 Backend:"
   cd "$BACK_PATH" || { echo "❌ No se pudo acceder al backend en $BACK_PATH"; return 1; }
 
   echo "🧹 Limpiando build anterior..."
-  sudo -u deploy rm -rf build & 
-  show_spinner $!
+  sudo -u deploy rm -rf dist build
 
   echo "🏗️  Construyendo nueva versión del backend..."
-  sudo -u deploy npm run build & 
-  show_spinner $!
+  sudo -u deploy npm run build
 
   echo -e "\n✅ ${WHITE}BUILD COMPLETO${GRAY_LIGHT}\n"
   sleep 2
@@ -677,7 +702,7 @@ backend_build() {
   cd "$BACK_PATH" || { echo "❌ No se pudo acceder al backend en $BACK_PATH"; return 1; }
 
   echo "🧹 Limpiando build anterior..."
-  sudo -u deploy rm -rf build 
+  sudo -u deploy rm -rf dist build 
   sleep 2
   echo "🏗️  Construyendo nueva versión del backend..."
   sudo -u deploy npm run build 
@@ -700,7 +725,13 @@ frontend_build() {
   sudo -u deploy rm -rf build
   sleep 2
   echo "🏗️  Construyendo nueva versión del frontend..."
-  sudo -u deploy npm run build
+  sudo -u deploy bash -c "
+    cd $FRONT_PATH && \
+    export NODE_OPTIONS='--openssl-legacy-provider --max-old-space-size=4096' && \
+    export GENERATE_SOURCEMAP=false && \
+    export INLINE_RUNTIME_CHUNK=false && \
+    npm run build
+  "
   sleep 2
   echo -e "\n✅ ${WHITE}BUILD COMPLETO${GRAY_LIGHT}\n"
 }
@@ -748,15 +779,30 @@ mkdir -p /home/deploy/${empresa_atualizar}/frontend
 cat > /home/deploy/${empresa_atualizar}/frontend/server.js <<'EOL'
 const express = require("express");
 const path = require("path");
-const app = express();
+let compression;
+try {
+  compression = require("compression");
+} catch (e) {}
 
-app.use(express.static(path.join(__dirname, "build")));
+const app = express();
+if (compression) {
+  app.use(compression());
+}
+app.use(
+  express.static(path.join(__dirname, "build"), {
+    maxAge: "7d",
+    etag: true
+  })
+);
 
 app.get("/*", function (req, res) {
   res.sendFile(path.join(__dirname, "build", "index.html"));
 });
 
-app.listen(${frontend_port});
+const PORT = process.env.PORT || ${frontend_port};
+app.listen(PORT, () => {
+  console.log("Frontend running on port " + PORT);
+});
 EOL
 EOF
 

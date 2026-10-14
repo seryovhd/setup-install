@@ -16,7 +16,7 @@ frontend_node_dependencies() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/frontend
-  npm install --loglevel=error
+  npm install --legacy-peer-deps --loglevel=error || npm install --loglevel=error
 EOF
 
   sleep 2
@@ -33,7 +33,7 @@ frontend_node_build() {
   printf "\n\n"
 
   sleep 2
-  printf "${WHITE} 💻 EL PROCESO PUEDE TARDAR BASTANTE. PACIENCIA"
+  printf "${WHITE} 💻 EL PROCESO PUEDE TARDAR UNOS MINUTOS. PACIENCIA...\n\n${GRAY_LIGHT}"
 
   FRONT_PATH="/home/deploy/${instancia_add}/frontend"
   
@@ -42,12 +42,29 @@ frontend_node_build() {
   cd "$FRONT_PATH" || { echo "❌ No se pudo acceder al frontend en $FRONT_PATH"; return 1; }
 
   echo "🧹 Limpiando build anterior..."
-  sudo -u deploy rm -rf build & 
-  show_spinner $!
+  sudo -u deploy rm -rf build
 
-  echo "🏗️  Construyendo nueva versión del frontend..."
-  sudo -u deploy npm run build & 
-  show_spinner $!
+  echo "🏗️  Construyendo versión de producción del frontend..."
+  sudo -u deploy bash -c "
+    cd $FRONT_PATH && \
+    export NODE_OPTIONS='--openssl-legacy-provider --max-old-space-size=4096' && \
+    export GENERATE_SOURCEMAP=false && \
+    export INLINE_RUNTIME_CHUNK=false && \
+    npm run build
+  "
+
+  if [ -f "$FRONT_PATH/build/index.html" ]; then
+    echo -e "\n✅ ${GREEN}Frontend compilado exitosamente (build/index.html generado).${GRAY_LIGHT}\n"
+  else
+    echo -e "\n⚠️  build/index.html no encontrado, reintentando compilación con react-scripts directo..."
+    sudo -u deploy bash -c "
+      cd $FRONT_PATH && \
+      export NODE_OPTIONS='--openssl-legacy-provider --max-old-space-size=4096' && \
+      export GENERATE_SOURCEMAP=false && \
+      export INLINE_RUNTIME_CHUNK=false && \
+      npx react-scripts build
+    "
+  fi
 
   sleep 2
 }
@@ -87,34 +104,23 @@ frontend_update() {
   cd /home/deploy/${empresa_atualizar}
 
   echo "🚫 Deteniendo PM2..."
-  sudo -u deploy pm2 stop ${empresa_atualizar}-frontend
+  sudo -u deploy pm2 stop ${empresa_atualizar}-frontend || true
 
-  echo "🧹 Restaurando archivos versionados en build si existen..."
+  echo "🧹 Restaurando archivos temporales si existen..."
   sudo -u deploy git restore --staged --worktree frontend/build || true
 
-  echo "🔄 Haciendo git fetch..."
+  echo "🔄 Sincronizando con repositorio..."
   sudo -u deploy git fetch origin
-
-  echo "🔍 Verificando cambios locales..."
   if [ -n "$(sudo -u deploy git status --porcelain)" ]; then
     echo "⚠️ Cambios locales detectados. Ejecutando reset forzado..."
     sudo -u deploy git reset --hard origin/main
   else
-    echo "✅ No hay cambios locales, continuando con git pull..."
-    PULL_OUTPUT=$(sudo -u deploy git pull)
-    echo "$PULL_OUTPUT"
-
-    if echo "$PULL_OUTPUT" | grep -q "Already up to date."; then
-      echo "✅ No hay cambios para actualizar. Saliendo..."
-      sudo -u deploy pm2 start ${empresa_atualizar}-frontend
-      sudo -u deploy pm2 save
-      return 0
-    fi
+    sudo -u deploy git pull origin main || true
   fi
 
   echo "🚀 Instalando dependencias..."
   cd /home/deploy/${empresa_atualizar}/frontend
-  sudo -u deploy npx update-browserslist-db@latest
+  sudo -u deploy npx update-browserslist-db@latest 2>/dev/null || true
 
   sudo -u deploy npm install --loglevel=error &
   show_spinner $!
@@ -122,12 +128,17 @@ frontend_update() {
   echo "🧹 Limpiando build anterior..."
   sudo -u deploy rm -rf build
 
-  echo "🏗️  Construyendo nueva versión..."
-  sudo -u deploy npm run build &
-  show_spinner $!
+  echo "🏗️  Construyendo nueva versión del frontend..."
+  sudo -u deploy bash -c "
+    cd /home/deploy/${empresa_atualizar}/frontend && \
+    export NODE_OPTIONS='--openssl-legacy-provider --max-old-space-size=4096' && \
+    export GENERATE_SOURCEMAP=false && \
+    export INLINE_RUNTIME_CHUNK=false && \
+    npm run build
+  "
 
   echo "▶️ Iniciando PM2..."
-  sudo -u deploy pm2 start ${empresa_atualizar}-frontend
+  sudo -u deploy pm2 restart ${empresa_atualizar}-frontend || sudo -u deploy pm2 start server.js --name ${empresa_atualizar}-frontend
   sudo -u deploy pm2 save
 
   sleep 2
@@ -153,7 +164,8 @@ frontend_set_env() {
 sudo su - deploy << EOF
   cat <<[-]EOF > /home/deploy/${instancia_add}/frontend/.env
 REACT_APP_BACKEND_URL=${backend_url}
-REACT_APP_HOURS_CLOSE_TICKETS_AUTO = 24
+REACT_APP_HOURS_CLOSE_TICKETS_AUTO=24
+PORT=${frontend_port}
 [-]EOF
 EOF
 
@@ -161,16 +173,34 @@ EOF
 
 sudo su - deploy << EOF
   cat <<[-]EOF > /home/deploy/${instancia_add}/frontend/server.js
-// servidor express simple para ejecutar la versión de producción del frontend;
+// Servidor express optimizado con compresión GZIP y cache para el frontend
 const express = require("express");
 const path = require("path");
-const app = express();
-app.use(express.static(path.join(__dirname, "build")));
-app.get("/*", function (req, res) {
-	res.sendFile(path.join(__dirname, "build", "index.html"));
-});
-app.listen(${frontend_port});
+let compression;
+try {
+  compression = require("compression");
+} catch (e) {}
 
+const app = express();
+if (compression) {
+  app.use(compression());
+}
+
+app.use(
+  express.static(path.join(__dirname, "build"), {
+    maxAge: "7d",
+    etag: true
+  })
+);
+
+app.get("/*", function (req, res) {
+  res.sendFile(path.join(__dirname, "build", "index.html"));
+});
+
+const PORT = process.env.PORT || ${frontend_port};
+app.listen(PORT, () => {
+  console.log("Frontend running on port " + PORT);
+});
 [-]EOF
 EOF
 
@@ -191,15 +221,16 @@ frontend_start_pm2() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/frontend
+  pm2 delete ${instancia_add}-frontend 2>/dev/null || true
   pm2 start server.js --name ${instancia_add}-frontend
   pm2 save --force
 EOF
 
- sleep 2
+  sleep 2
   
   sudo su - root <<EOF
-   pm2 startup
-  sudo env PATH=$PATH:/usr/bin /usr/lib/node_modules/pm2/bin/pm2 startup systemd -u deploy --hp /home/deploy
+  pm2 startup 2>/dev/null || true
+  env PATH=\$PATH:/usr/bin \$(which pm2) startup systemd -u deploy --hp /home/deploy 2>/dev/null || true
 EOF
   sleep 2
 }
@@ -234,11 +265,14 @@ server {
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_cache_bypass \$http_upgrade;
+    proxy_buffering off;
+    proxy_read_timeout 86400s;
+    proxy_send_timeout 86400s;
   }
 }
 END
 
-ln -s /etc/nginx/sites-available/${instancia_add}-frontend /etc/nginx/sites-enabled
+ln -sf /etc/nginx/sites-available/${instancia_add}-frontend /etc/nginx/sites-enabled/
 EOF
 
   sleep 2

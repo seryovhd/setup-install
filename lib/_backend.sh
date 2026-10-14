@@ -15,19 +15,69 @@ backend_redis_create() {
 
   sudo su - root <<EOF
   usermod -aG docker deploy
-  docker run --name redis-${instancia_add} -p ${redis_port}:6379 --restart always --detach redis redis-server --requirepass ${mysql_root_password}
+  docker rm -f redis-${instancia_add} 2>/dev/null || true
+  docker run --name redis-${instancia_add} -p ${redis_port}:6379 --restart always --detach redis:7-alpine redis-server --requirepass ${mysql_root_password}
   
   sleep 2
-  sudo su - postgres <<EOF
-  createdb ${instancia_add};
-  psql
-  CREATE USER ${instancia_add} SUPERUSER INHERIT CREATEDB CREATEROLE;
-  ALTER USER ${instancia_add} PASSWORD '${mysql_root_password}';
-  \q
-  exit
+  # Configurar usuario y base de datos PostgreSQL de forma infalible con la contraseña ingresada
+  sudo -u postgres psql -c "ALTER USER \"${instancia_add}\" WITH PASSWORD '${mysql_root_password}';" 2>/dev/null || sudo -u postgres psql -c "CREATE USER \"${instancia_add}\" WITH PASSWORD '${mysql_root_password}' SUPERUSER CREATEDB CREATEROLE;"
+  sudo -u postgres psql -c "CREATE DATABASE \"${instancia_add}\" OWNER \"${instancia_add}\";" 2>/dev/null || sudo -u postgres psql -c "ALTER DATABASE \"${instancia_add}\" OWNER TO \"${instancia_add}\";"
+  sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE \"${instancia_add}\" TO \"${instancia_add}\";"
+  sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '${mysql_root_password}';" 2>/dev/null || true
+
+  # Asegurar que PostgreSQL acepte conexiones TCP locales con contraseña
+  PG_CONF=\$(find /etc/postgresql/ -name pg_hba.conf 2>/dev/null | head -n 1)
+  if [ -n "\$PG_CONF" ]; then
+    sed -i -E 's/host\s+all\s+all\s+127\.0\.0\.1\/32\s+ident/host all all 127.0.0.1\/32 md5/g' "\$PG_CONF" 2>/dev/null || true
+    systemctl restart postgresql
+  fi
 EOF
 
-sleep 2
+  sleep 2
+}
+
+#######################################
+# Despliega el contenedor de Evolution API v2 (Motor WhatsApp)
+# Argumentos:
+#   Ninguno
+#######################################
+backend_evolution_create() {
+  print_banner
+  printf "${WHITE} 💻 Desplegando Evolution API v2 (Motor WhatsApp)...${GRAY_LIGHT}"
+  printf "\n\n"
+
+  sleep 2
+
+  evolution_port="${evolution_port:-8080}"
+
+  sudo su - root <<EOF
+  docker rm -f evolution-${instancia_add} 2>/dev/null || true
+  mkdir -p /home/deploy/evolution_instances
+  chown -R deploy:deploy /home/deploy/evolution_instances
+
+  docker run -d \
+    --name evolution-${instancia_add} \
+    --restart always \
+    --network host \
+    -v /home/deploy/evolution_instances:/evolution/instances \
+    -e PORT="${evolution_port}" \
+    -e SERVER_URL="http://localhost:${evolution_port}" \
+    -e DOCKER_ENV=true \
+    -e LOG_LEVEL=ERROR,WARN,INFO \
+    -e LOG_COLOR=true \
+    -e LOG_BAILEYS=error \
+    -e AUTHENTICATION_API_KEY="${evolution_api_key}" \
+    -e DATABASE_ENABLED=true \
+    -e DATABASE_CONNECTION_URI="postgresql://${instancia_add}:${mysql_root_password}@localhost:5432/${instancia_add}?schema=evolution" \
+    -e DATABASE_CONNECTION_CLIENT_NAME=evolution_api \
+    -e CACHE_REDIS_ENABLED=true \
+    -e CACHE_REDIS_URI="redis://:${mysql_root_password}@127.0.0.1:${redis_port}/1" \
+    -e CACHE_REDIS_PREFIX_KEY=evolution \
+    -e CACHE_REDIS_SAVE_INSTANCES=true \
+    atendai/evolution-api:v2.1.2
+EOF
+
+  sleep 3
 }
 
 #######################################
@@ -52,6 +102,8 @@ backend_set_env() {
   frontend_url=${frontend_url%%/*}
   frontend_url=https://$frontend_url
 
+  evolution_port="${evolution_port:-8080}"
+
   sudo su - deploy << EOF
   cat <<[-]EOF > /home/deploy/${instancia_add}/backend/.env
 NODE_ENV=production
@@ -74,11 +126,16 @@ JWT_REFRESH_SECRET=${jwt_refresh_secret}
 
 REDIS_URI=redis://:${mysql_root_password}@127.0.0.1:${redis_port}
 REDIS_OPT_LIMITER_MAX=1
-REGIS_OPT_LIMITER_DURATION=3000
+REDIS_OPT_LIMITER_DURATION=3000
 
 USER_LIMIT=${max_user}
 CONNECTIONS_LIMIT=${max_whats}
 CLOSED_SEND_BY_ME=true
+
+# MOTOR EVOLUTION API v2 (WhatsApp Ultra-Rápido)
+EVOLUTION_API_URL=http://localhost:${evolution_port}
+EVOLUTION_API_KEY=${evolution_api_key}
+EVOLUTION_API_ENABLED=true
 
 MAIL_HOST="smtp.hostinger.com"
 MAIL_USER="contato@seusite.com"
@@ -103,15 +160,9 @@ backend_node_dependencies() {
 
   sleep 2
 
-  # Primero instalar Node.js y npm bien
-  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-  sudo apt-get install -y nodejs
-
-  # Luego como usuario deploy hacer el resto
   sudo -u deploy bash -c "
     cd /home/deploy/${instancia_add}/backend &&
-    npm cache clean -f &&
-    npm install --loglevel=error
+    npm install --include=dev --loglevel=error || npm install --loglevel=error
   "
 
   sleep 2
@@ -154,26 +205,15 @@ backend_update() {
   cd /home/deploy/${empresa_atualizar}
 
   echo "🚫 Deteniendo PM2..."
-  sudo -u deploy pm2 stop ${empresa_atualizar}-backend
+  sudo -u deploy pm2 stop ${empresa_atualizar}-backend || true
 
-  echo "🔄 Haciendo git fetch..."
+  echo "🔄 Sincronizando con repositorio..."
   sudo -u deploy git fetch origin
-
-  echo "🔍 Verificando cambios locales..."
   if [ -n "$(sudo -u deploy git status --porcelain)" ]; then
     echo "⚠️ Cambios locales detectados. Ejecutando reset forzado..."
     sudo -u deploy git reset --hard origin/main
   else
-    echo "✅ No hay cambios locales, ejecutando git pull..."
-    PULL_OUTPUT=$(sudo -u deploy git pull)
-    echo "$PULL_OUTPUT"
-
-    if echo "$PULL_OUTPUT" | grep -q "Already up to date."; then
-      echo "✅ No hay cambios para actualizar. Saliendo..."
-      sudo -u deploy pm2 start ${empresa_atualizar}-backend
-      sudo -u deploy pm2 save
-      return 0
-    fi
+    sudo -u deploy git pull origin main || true
   fi
 
   echo "📂 Moviéndose a backend..."
@@ -182,12 +222,6 @@ backend_update() {
   echo "📦 Instalando dependencias..."
   sudo -u deploy npm install --loglevel=error
 
-  echo "⬆️  Actualizando paquetes forzadamente..."
-  sudo -u deploy npm update -f 
-
-  echo "📥 Instalando tipos de fs-extra..."
-  sudo -u deploy npm install @types/fs-extra --loglevel=error
-
   echo "🧹 Limpiando carpeta dist..."
   sudo -u deploy rm -rf dist
 
@@ -195,13 +229,10 @@ backend_update() {
   sudo -u deploy npm run build
 
   echo "🛢️ Migrando base de datos..."
-  sudo -u deploy npx sequelize db:migrate
-
-  echo "🌱 Insertando datos semilla..."
-  sudo -u deploy npx sequelize db:seed
+  sudo -u deploy npx sequelize db:migrate || true
 
   echo "▶️ Iniciando PM2..."
-  sudo -u deploy pm2 start ${empresa_atualizar}-backend
+  sudo -u deploy pm2 restart ${empresa_atualizar}-backend || sudo -u deploy pm2 start dist/server.js --name ${empresa_atualizar}-backend
   sudo -u deploy pm2 save
 
   sleep 2
@@ -246,7 +277,7 @@ backend_db_seed() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/backend
-  npx sequelize db:seed:all
+  npx sequelize db:seed:all || true
 EOF
 
   sleep 2
@@ -266,7 +297,8 @@ backend_start_pm2() {
 
   sudo su - deploy <<EOF
   cd /home/deploy/${instancia_add}/backend
-  pm2 start dist/server.js --node-args="--experimental-global-webcrypto" --name ${instancia_add}-backend
+  pm2 delete ${instancia_add}-backend 2>/dev/null || true
+  pm2 start dist/server.js --node-args="--max-old-space-size=4096 --experimental-global-webcrypto" --name ${instancia_add}-backend
   pm2 save --force
 EOF
 
@@ -301,10 +333,13 @@ server {
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_cache_bypass \$http_upgrade;
+    proxy_buffering off;
+    proxy_read_timeout 86400s;
+    proxy_send_timeout 86400s;
   }
 }
 END
-ln -s /etc/nginx/sites-available/${instancia_add}-backend /etc/nginx/sites-enabled
+ln -sf /etc/nginx/sites-available/${instancia_add}-backend /etc/nginx/sites-enabled/
 EOF
 
   echo -e "\n✅ ${WHITE}INSTALACIÓN COMPLETADA${GRAY_LIGHT}\n"

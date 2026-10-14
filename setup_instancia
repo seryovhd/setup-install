@@ -23,6 +23,7 @@ if [[ ! -e "${PROJECT_ROOT}"/config ]]; then
 deploy_password=${deploy_password}
 mysql_root_password=${mysql_root_password}
 db_pass=${db_pass}
+evolution_api_key=${evolution_api_key}
 EOF
 fi
 
@@ -54,8 +55,9 @@ inquiry_options
 
 # backend related
 system_git_clone
-backend_set_env
 backend_redis_create
+backend_evolution_create
+backend_set_env
 backend_node_dependencies
 backend_node_build
 backend_db_migrate

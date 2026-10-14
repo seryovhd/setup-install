@@ -22,16 +22,16 @@ print_banner() {
   printf "\n\n"
 
   printf "${CYAN_LIGHT}";
-  printf "                                                           ▄▄█▀▀▀▀▀▀▀█▄▄  \n";
-  printf "                                                         ${CYAN_LIGHT}▄█▀${NC}   ${WHITE}▄▄${NC}      ${CYAN_LIGHT}▀█▄\n";
-  printf "${CYAN_LIGHT} ██████ ██   ██  █████  ███████  █████  ██████ ${NC}          ${CYAN_LIGHT}█${NC}    ${WHITE}███${NC}         ${CYAN_LIGHT}█\n";
-  printf "${CYAN_LIGHT}██      ██   ██ ██   ██ ██      ██   ██ ██   ██${NC}          ${CYAN_LIGHT}█${NC}    ${WHITE}██▄         ${CYAN_LIGHT}█${NC}\n";
-  printf "${CYAN_LIGHT}██      ███████ ███████ ███████ ███████ ██████ ${NC}          ${CYAN_LIGHT}█${NC}     ${WHITE}▀██▄${NC} ${WHITE}██${NC}    ${CYAN_LIGHT}█\n";
-  printf "${CYAN_LIGHT}██      ██   ██ ██   ██      ██ ██   ██ ██     ${NC}          ${CYAN_LIGHT}█${NC}       ${WHITE}▀███▀${NC}    ${CYAN_LIGHT}█\n";
-  printf "${CYAN_LIGHT} ██████ ██   ██ ██   ██ ███████ ██   ██ ██     ${NC}          ${CYAN_LIGHT}▀█▄           ▄█▀\n";
-  printf "                                                          ▄█    ▄▄▄▄█▀▀  \n";
-  printf "                                                          █  ▄█▀        \n";
-  printf "                                                          ▀▀▀▀          \n";
+  printf "                                                                 ▄▄█▀▀▀▀▀▀▀█▄▄  \n";
+  printf "                                                               ${CYAN_LIGHT}▄█▀${NC}   ${WHITE}▄▄${NC}      ${CYAN_LIGHT}▀█▄\n";
+  printf "${CYAN_LIGHT} ██████ ██      ███████ ███████  █████  ██████  ██████ ${NC}         ${CYAN_LIGHT}█${NC}    ${WHITE}███${NC}         ${CYAN_LIGHT}█\n";
+  printf "${CYAN_LIGHT}██      ██      ██           ██ ██   ██ ██   ██ ██   ██${NC}         ${CYAN_LIGHT}█${NC}    ${WHITE}██▄         ${CYAN_LIGHT}█${NC}\n";
+  printf "${CYAN_LIGHT}██      ██      █████       ██  ███████ ██████  ██████ ${NC}         ${CYAN_LIGHT}█${NC}     ${WHITE}▀██▄${NC} ${WHITE}██${NC}    ${CYAN_LIGHT}█\n";
+  printf "${CYAN_LIGHT}██      ██      ██         ██   ██   ██ ██      ██     ${NC}         ${CYAN_LIGHT}█${NC}       ${WHITE}▀███▀${NC}    ${CYAN_LIGHT}█\n";
+  printf "${CYAN_LIGHT} ██████ ███████ ███████   ██    ██   ██ ██      ██     ${NC}         ${CYAN_LIGHT}▀█▄           ▄█▀\n";
+  printf "                                                                ▄█    ▄▄▄▄█▀▀  \n";
+  printf "                 ${WHITE}[ CLEZAPP PRO EDITION ]${CYAN_LIGHT}                        █  ▄█▀        \n";
+  printf "                                                                ▀▀▀▀          \n";
   printf "${NC}";
 
   printf "\n"
