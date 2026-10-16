@@ -14,7 +14,7 @@ Este script permite realizar la instalación automática y optimizada del entorn
 1. **Clona el repositorio en tu servidor VPS:**
 
     ```bash
-    git clone https://github.com/seryovhd/setup-install.git setup
+    git clone https://github.com/seryovhd/setup-install setup
     ```
 
 2. **Asigna permisos de ejecución:**
@@ -38,7 +38,7 @@ Este script permite realizar la instalación automática y optimizada del entorn
 **O EN UNA SOLA LÍNEA:**
 
 ```bash
-git clone https://github.com/seryovhd/install-vps setup && sudo chmod -R 777 setup && cd setup && sudo ./setup
+git clone https://github.com/seryovhd/setup-install setup && sudo chmod -R 777 setup && cd setup && sudo ./setup
 ```
 
 El script configurará automáticamente:
