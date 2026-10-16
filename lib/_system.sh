@@ -562,26 +562,46 @@ system_certbot_setup() {
 system_self_update() {
   print_banner
   printf "${WHITE} 💻 Verificando actualizaciones del instalador...${GRAY_LIGHT}\n\n"
+
   cd "$PROJECT_ROOT" || return 0
   git config --global --add safe.directory "$PROJECT_ROOT"
-  git fetch --quiet || true
+  git fetch origin --quiet 2>/dev/null || true
+
   local_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-  local_hash=$(git rev-parse HEAD 2>/dev/null)
-  remote_hash=$(git rev-parse origin/$local_branch 2>/dev/null || git rev-parse @{u} 2>/dev/null)
-  if [ -n "$remote_hash" ] && [ "$local_hash" != "$remote_hash" ]; then
-    printf "${YELLOW} ⚠️ Hay una nueva versión disponible.${GRAY_LIGHT}\n\n"
-    read -p "> ¿Deseas actualizar ahora? (s/N) " resp
-    resp=${resp:-N}
+  [ -z "$local_branch" ] || [ "$local_branch" = "HEAD" ] && local_branch="main"
+  upstream="origin/$local_branch"
+
+  commits_behind=$(git rev-list --count HEAD.."$upstream" 2>/dev/null || echo 0)
+
+  if [ "$commits_behind" -gt 0 ]; then
+    printf "${YELLOW} 🔔 ¡HAY UNA NUEVA ACTUALIZACIÓN DISPONIBLE!${GRAY_LIGHT}\n"
+    printf "${WHITE} Se encontraron ${YELLOW}${commits_behind}${WHITE} nuevo(s) commit(s) en GitHub:${GRAY_LIGHT}\n\n"
+
+    # Muestra los últimos commits con sus mensajes formateados
+    git --no-pager log --oneline --color HEAD.."$upstream" 2>/dev/null | head -n 5 | sed 's/^/   ➜ /'
+    printf "\n"
+
+    read -p "> ¿Deseas actualizar el instalador ahora? (S/n): " resp
+    resp=${resp:-S}
+
     if [[ "$resp" =~ ^[sS]$ ]]; then
-      git reset --hard "origin/$local_branch" || git pull --ff-only
-      printf "\n✅ ${WHITE}Instalador actualizado.${GRAY_LIGHT}\n\n"
+      git reset --hard "$upstream"
+      printf "\n✅ ${GREEN}Instalador actualizado a la última versión.${GRAY_LIGHT}\n"
+      printf "🔄 ${WHITE}Reiniciando instalador con los nuevos cambios...${GRAY_LIGHT}\n\n"
+      sleep 1
+      if [ -x "$0" ]; then
+        exec "$0" "$@"
+      else
+        exec bash "$0" "$@"
+      fi
     else
-      printf "\n➡️  Continuando sin actualizar.${GRAY_LIGHT}\n\n"
+      printf "\n➡️ Continuando con la versión actual.\n\n"
     fi
   else
-    printf "✅ ${WHITE}Ya estás en la última versión.${GRAY_LIGHT}\n\n"
+    printf "✅ ${WHITE}El instalador está al día con el último commit (${local_branch}).${GRAY_LIGHT}\n\n"
   fi
 }
+
 
 backend_logs() {
   print_banner
